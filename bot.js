@@ -1,11 +1,13 @@
-require('dotenv').config();
+require('dotenv').config(); 
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+const SHEET_URL = process.env.SHEET_URL;
 const PASSCODE = process.env.PASSCODE || 'SAP101';
 const authorizedUsers = new Set();
-const userLanguages = new Map(); // userId → 'fr', 'ht', or 'en'
+const userEmails = new Map(); // 🔹 This was missing!
+const userLanguages = new Map();
 
 const restrictedKeywords = [
   'ritual', 'dream', 'spiritual', 'kabbalah', 'initiation',
@@ -55,12 +57,6 @@ const messages = {
   }
 };
 
-bot.start((ctx) => {
-  const lang = detectLanguage(ctx.message.text || '') || 'en';
-  userLanguages.set(ctx.from.id, lang);
-  ctx.reply(messages.welcome[lang]);
-});
-
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const input = ctx.message.text.trim();
@@ -71,22 +67,38 @@ bot.on('text', async (ctx) => {
 
   const lang = userLanguages.get(userId);
 
-  // Check access
+  // 🔐 Passcode Check
   if (!authorizedUsers.has(userId)) {
     if (input === PASSCODE) {
       authorizedUsers.add(userId);
-      return ctx.reply(messages.passcodeSuccess[lang]);
+      ctx.reply(messages.passcodeSuccess[lang]);
+      return ctx.reply("📧 Pour recevoir des rappels ou documents, veuillez entrer votre adresse e-mail:");
     } else {
       return ctx.reply(messages.passcodeFail[lang]);
     }
   }
 
-  // Restrict spiritual topics
+  // ✅ 📧 Email Capture
+  if (!userEmails.has(userId) && input.includes('@')) {
+    userEmails.set(userId, input);
+    ctx.reply("✅ Merci, votre adresse a été enregistrée.");
+
+    axios.post(SHEET_URL, {
+      telegramId: userId,
+      email: input
+    }).catch(err => {
+      console.error("Google Sheet error:", err.message);
+    });
+
+    return;
+  }
+
+  // 🚫 Block spiritual/mystical content
   if (restrictedKeywords.some(w => input.toLowerCase().includes(w))) {
     return ctx.reply(messages.restricted[lang]);
   }
 
-  // Chatbase query
+  // 🤖 Forward to Chatbase
   try {
     console.log("User input:", input);
 
@@ -101,17 +113,11 @@ bot.on('text', async (ctx) => {
       }
     });
 
-    console.log("Chatbase raw response:", JSON.stringify(response.data, null, 2));
+    const reply = response.data?.messages?.[0]?.content || response.data?.text;
+    ctx.reply(reply || messages.fallback[lang]);
 
-    const reply = response.data?.text;
-
-    if (reply) {
-      ctx.reply(reply);
-    } else {
-      ctx.reply(messages.fallback[lang]);
-    }
   } catch (err) {
-    console.error("Error contacting Chatbase:", err.response?.data || err.message);
+    console.error("Chatbase error:", err.message);
     ctx.reply(messages.error[lang]);
   }
 });
