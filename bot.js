@@ -167,6 +167,15 @@ bot.on('text', async (ctx) => {
     const reply = response.data?.messages?.[0]?.content || response.data?.text || null;
     ctx.reply(reply || messages.fallback[lang]);
     // 📝 Log interaction to Google Sheet
+    console.log("➡️ Sending to Google Sheet:", {
+  url: process.env.LOG_SHEET_URL,
+  payload: {
+    telegramId: userId,
+    userMessage: input,
+    botReply: reply
+  }
+});
+
 axios.post(process.env.LOG_SHEET_URL, {
   telegramId: userId,
   userMessage: input,
