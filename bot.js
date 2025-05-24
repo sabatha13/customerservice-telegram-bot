@@ -11,6 +11,7 @@ const userEmails = new Map(); // 🔹 This was missing!
 const userMessageTimestamps = new Map();
 const RATE_LIMIT = 5; // messages
 const RATE_WINDOW = 30 * 1000; // 30 seconds
+const mutedUsers = new Map(); // 🔇 Keeps track of muted users
 const userLanguages = new Map();
 
 const restrictedKeywords = [
@@ -64,6 +65,42 @@ const messages = {
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const input = ctx.message.text.trim();
+// 🛡️ Check if user is muted
+if (mutedUsers.has(userId)) {
+  const until = mutedUsers.get(userId);
+  const now = Date.now();
+
+  if (now < until) {
+    const lang = userLanguages.get(userId) || 'en';
+    const abuseMessage = {
+      fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
+      ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
+      en: "⚠️ You’re sending too many messages. Please wait a moment."
+    };
+    return ctx.reply(abuseMessage[lang]);
+  } else {
+    mutedUsers.delete(userId); // Unmute
+  }
+}
+
+// ⏱️ Record timestamp
+const now = Date.now();
+const timestamps = userMessageTimestamps.get(userId) || [];
+const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
+recent.push(now);
+userMessageTimestamps.set(userId, recent);
+
+// 🚫 Spam threshold
+if (recent.length > RATE_LIMIT) {
+  mutedUsers.set(userId, now + RATE_WINDOW); // Mute for RATE_WINDOW
+  const lang = userLanguages.get(userId) || 'en';
+  const abuseMessage = {
+    fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
+    ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
+    en: "⚠️ You’re sending too many messages. Please wait a moment."
+  };
+  return ctx.reply(abuseMessage[lang]);
+}
 
   if (!userLanguages.has(userId)) {
     userLanguages.set(userId, detectLanguage(input));
