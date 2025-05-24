@@ -125,13 +125,14 @@ bot.on('text', async (ctx) => {
   userEmails.set(userId, input);
   ctx.reply("✅ Merci, votre adresse a été enregistrée.");
 
-// ✅ Notify admin
-bot.telegram.sendMessage(
-  process.env.ADMIN_TELEGRAM_ID,
-  `📩 *New Email Captured*\n👤 ID: ${userId}\n📧 ${input}`,
-  { parse_mode: 'Markdown' }
-);
+  // ✅ Notify admin
+  bot.telegram.sendMessage(
+    process.env.ADMIN_TELEGRAM_ID,
+    `📩 *New Email Captured*\n👤 ID: ${userId}\n📧 ${input}`,
+    { parse_mode: 'Markdown' }
+  );
 
+  // ✅ Send to Google Sheet
   axios.post(SHEET_URL, {
     telegramId: userId,
     email: input
@@ -141,6 +142,7 @@ bot.telegram.sendMessage(
 
   return;
 }
+
 
   // 🚫 Filter restricted topics
   if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
