@@ -260,12 +260,12 @@ if (!authorizedUsers.has(userId)) {
   }
 });
 
-const studentId = ctx.session?.studentID || 'Unknown';
+const studentID = ctx.session?.studentID || 'Unknown';
 const studentName = ctx.session?.studentName || 'Unknown';
-const timestamp = new Date().toLocaleString(); // Local time format
+const timestamp = new Date().toLocaleString();
 
 axios.post(process.env.LOG_SHEET_URL, {
-  studentId,
+  studentID,
   studentName,
   userMessage: input,
   botReply: reply,
