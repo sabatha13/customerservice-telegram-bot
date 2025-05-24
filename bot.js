@@ -14,8 +14,76 @@ const userMessageTimestamps = new Map();
 const mutedUsers = new Map();
 const userLanguages = new Map();
 
+// ✅ List of valid student IDs
+const validStudentIDs = new Set([
+  "ASU-9087", "ASU-0089", "ASU-5543", "ASU-1123", "ASU-5656",
+  "ASU-4321", "ASU-7776", "ASU-8878", "ASU-7657", "ASU-7770",
+  "ASU-65T4", "ASU-J87E", "ASU-U76R", "ASU-71Q6", "ASU-7208",
+  "ASU-N79Z", "ASU-2041", "ASU-482Q", "ASU-5463", "ASU-1086",
+  "ASU-0001", "ASU-9976", "ASU-2455", "ASU-4432", "ASU-97JU",
+  "ASU-8754", "ASU-8909", "ASU-90H8", "ASU-767I", "ASU-90J2",
+  "ASU-82WK", "ASU-Y65T", "ASU-751Q", "ASU-008G", "ASU-701A",
+  "ASU-MN61", "ASU-KA42", "ASU-LK00", "ASU-BV03", "ASU-BY76",
+  "ASU-AA03", "ASU-SS73", "ASU-LI81", "ASU-MK00", "ASU-JJ98",
+  "ASU-LL94", "ASU-HF70", "ASU-0093"
+]);
+
+// 🗂️ ID → Name map
+const studentNames = {
+  "ASU-9087": "Medjyne Lubin",
+  "ASU-0089": "Le Comte de Sabatha",
+  "ASU-5543": "Joseph Ardouin",
+  "ASU-1123": "Bien-aimé Audisson",
+  "ASU-5656": "Fredo Hermisson Alfred",
+  "ASU-4321": "Theodore Loucianord",
+  "ASU-7776": "Stephenie Beaubrun",
+  "ASU-8878": "Pierre Louis Illonny",
+  "ASU-7657": "Widlere Boyer",
+  "ASU-7770": "Zamor Richardson",
+  "ASU-65T4": "Nadege Jeune",
+  "ASU-J87E": "Augustin Dargan",
+  "ASU-U76R": "Milfort Jean Bernard",
+  "ASU-71Q6": "Herline Lochard",
+  "ASU-7208": "Jenny Amando Cesar",
+  "ASU-N79Z": "Martin Paul Fleurime",
+  "ASU-2041": "Antoine Ricardo",
+  "ASU-482Q": "Fieffe Sebastien",
+  "ASU-5463": "Vanessa Petit Dor",
+  "ASU-1086": "Confident Joseph Ernest",
+  "ASU-0001": "Guilande Gourdet",
+  "ASU-9976": "Confident Joseph Ernest",
+  "ASU-2455": "Ramy Anilia",
+  "ASU-4432": "Nerette Josemithe",
+  "ASU-97JU": "Michel Eddy",
+  "ASU-8754": "Elie Laurent Andral",
+  "ASU-8909": "Astride Petit Dor",
+  "ASU-90H8": "Benoit Ralph Jose",
+  "ASU-767I": "Henrice Somoza",
+  "ASU-90J2": "St Juste Garichard Gabriel",
+  "ASU-82WK": "Patrick Desir",
+  "ASU-Y65T": "Cyprien Euponine",
+  "ASU-751Q": "Baptiste Pierrot",
+  "ASU-008G": "Ginger Isaac",
+  "ASU-701A": "Ryana Ternier",
+  "ASU-MN61": "Max Gregord Degraff",
+  "ASU-KA42": "Marie Rodriguez Dautruche",
+  "ASU-LK00": "Jeanbaptiste Jean Wood",
+  "ASU-BV03": "Rodly Saint Vil",
+  "ASU-BY76": "Winson Hyppolite",
+  "ASU-AA03": "Aliuskha Shelda Eliassaint",
+  "ASU-SS73": "Eden Jean Albert",
+  "ASU-LI81": "Costama Janvier",
+  "ASU-MK00": "Cherismard Beauge",
+  "ASU-JJ98": "Eddyson Willens ResilliacMax",
+  "ASU-LL94": "Kleibenz Caperton Etienne",
+  "ASU-HF70": "Jean Mario Dolciné",
+  "ASU-0093": "Estinfont Vilender"
+};
+
+
 const RATE_LIMIT = 5;
-const RATE_WINDOW = 30 * 1000;
+const RATE_WINDOW = 30 * 1000; // 30 seconds
+
 
 const restrictedKeywords = [
   'ritual', 'dream', 'spiritual', 'kabbalah', 'initiation',
@@ -109,16 +177,32 @@ bot.on('text', async (ctx) => {
     }[lang]);
   }
 
-  // 🔐 Passcode check
-  if (!authorizedUsers.has(userId)) {
-    if (input === PASSCODE) {
-      authorizedUsers.add(userId);
-      ctx.reply(messages.passcodeSuccess[lang]);
-      return ctx.reply("📧 Pour recevoir des rappels ou documents, veuillez entrer votre adresse e-mail:");
-    } else {
-      return ctx.reply(messages.passcodeFail[lang]);
-    }
+ const studentID = input.toUpperCase();
+if (!authorizedUsers.has(userId)) {
+  if (validStudentIDs.has(studentID)) {
+    authorizedUsers.add(userId);
+
+    const studentName = studentNames[studentID] || "Nom inconnu";
+
+    // ✅ Notify Admin
+    bot.telegram.sendMessage(
+      process.env.ADMIN_TELEGRAM_ID,
+      `🟢 *Connexion approuvée*\n👤 ${studentName}\n🆔 ${studentID}`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // 📝 Optionally store in Map
+    ctx.session = ctx.session || {};
+    ctx.session.studentName = studentName;
+    ctx.session.studentID = studentID;
+
+    ctx.reply(`✅ Bonjour ${studentName}. Comment puis-je vous assister aujourd’hui ?`);
+    return ctx.reply("📧 Pour recevoir des rappels ou documents, veuillez entrer votre adresse e-mail :");
+  } else {
+    return ctx.reply("⛔ Identifiant invalide. Veuillez entrer un identifiant étudiant valide.");
   }
+}
+
 
   // 📧 Email capture
   if (!userEmails.has(userId) && input.includes('@')) {
@@ -176,10 +260,16 @@ bot.on('text', async (ctx) => {
   }
 });
 
+const studentId = ctx.session?.studentID || 'Unknown';
+const studentName = ctx.session?.studentName || 'Unknown';
+const timestamp = new Date().toLocaleString(); // Local time format
+
 axios.post(process.env.LOG_SHEET_URL, {
-  telegramId: userId,
+  studentId,
+  studentName,
   userMessage: input,
-  botReply: reply
+  botReply: reply,
+  timestamp
 }).catch(err => {
   console.error("Logging error:", err.message);
 });
