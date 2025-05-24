@@ -124,7 +124,7 @@ bot.on('text', async (ctx) => {
   if (!userEmails.has(userId) && input.includes('@')) {
   userEmails.set(userId, input);
   ctx.reply("✅ Merci, votre adresse a été enregistrée.");
-  
+
 // ✅ Notify admin
 bot.telegram.sendMessage(
   process.env.ADMIN_TELEGRAM_ID,
@@ -164,6 +164,15 @@ bot.telegram.sendMessage(
 
     const reply = response.data?.messages?.[0]?.content || response.data?.text || null;
     ctx.reply(reply || messages.fallback[lang]);
+    // 📝 Log interaction to Google Sheet
+axios.post(process.env.LOG_SHEET_URL, {
+  telegramId: userId,
+  userMessage: input,
+  botReply: reply
+}).catch(err => {
+  console.error("Logging error:", err.message);
+});
+
 
   } catch (err) {
     console.error("Chatbase error:", err.response?.data || err.message);
