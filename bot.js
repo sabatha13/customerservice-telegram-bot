@@ -1,18 +1,21 @@
-require('dotenv').config(); 
+require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const SHEET_URL = process.env.SHEET_URL;
 const PASSCODE = process.env.PASSCODE || 'SAP101';
+const CHATBASE_ID = process.env.CHATBASE_BOT_ID;
+const CHATBASE_API = process.env.CHATBASE_API_KEY;
+
 const authorizedUsers = new Set();
-const userEmails = new Map(); // 🔹 This was missing!
-// Rate limiter: userId → [timestamps]
+const userEmails = new Map();
 const userMessageTimestamps = new Map();
-const RATE_LIMIT = 5; // messages
-const RATE_WINDOW = 30 * 1000; // 30 seconds
-const mutedUsers = new Map(); // 🔇 Keeps track of muted users
+const mutedUsers = new Map();
 const userLanguages = new Map();
+
+const RATE_LIMIT = 5;
+const RATE_WINDOW = 30 * 1000;
 
 const restrictedKeywords = [
   'ritual', 'dream', 'spiritual', 'kabbalah', 'initiation',
@@ -23,7 +26,6 @@ function detectLanguage(text) {
   const lower = text.toLowerCase();
   const frWords = ['bonjour', 'merci', 'examens', 'classe', 'paiement'];
   const htWords = ['bonjou', 'mèsi', 'egzamen', 'klas', 'peyman'];
-
   if (htWords.some(w => lower.includes(w))) return 'ht';
   if (frWords.some(w => lower.includes(w))) return 'fr';
   return 'en';
@@ -62,69 +64,52 @@ const messages = {
   }
 };
 
+bot.start((ctx) => {
+  const lang = detectLanguage(ctx.message.text || '');
+  userLanguages.set(ctx.from.id, lang);
+  ctx.reply(messages.welcome[lang]);
+});
+
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const input = ctx.message.text.trim();
-// 🛡️ Check if user is muted
-if (mutedUsers.has(userId)) {
-  const until = mutedUsers.get(userId);
   const now = Date.now();
-
-  if (now < until) {
-    const lang = userLanguages.get(userId) || 'en';
-    const abuseMessage = {
-      fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
-      ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
-      en: "⚠️ You’re sending too many messages. Please wait a moment."
-    };
-    return ctx.reply(abuseMessage[lang]);
-  } else {
-    mutedUsers.delete(userId); // Unmute
-  }
-}
-
-// ⏱️ Record timestamp
-const now = Date.now();
-const timestamps = userMessageTimestamps.get(userId) || [];
-const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
-recent.push(now);
-userMessageTimestamps.set(userId, recent);
-
-// 🚫 Spam threshold
-if (recent.length > RATE_LIMIT) {
-  mutedUsers.set(userId, now + RATE_WINDOW); // Mute for RATE_WINDOW
-  const lang = userLanguages.get(userId) || 'en';
-  const abuseMessage = {
-    fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
-    ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
-    en: "⚠️ You’re sending too many messages. Please wait a moment."
-  };
-  return ctx.reply(abuseMessage[lang]);
-}
 
   if (!userLanguages.has(userId)) {
     userLanguages.set(userId, detectLanguage(input));
   }
-
   const lang = userLanguages.get(userId);
 
-  // 🔒 RATE LIMIT CHECK
-  const now = Date.now();
+  // 🚫 If muted
+  if (mutedUsers.has(userId)) {
+    const until = mutedUsers.get(userId);
+    if (now < until) {
+      return ctx.reply({
+        fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
+        ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
+        en: "⚠️ You’re sending too many messages. Please wait a moment."
+      }[lang]);
+    } else {
+      mutedUsers.delete(userId);
+    }
+  }
+
+  // ⏱️ Spam detection
   const timestamps = userMessageTimestamps.get(userId) || [];
   const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
   recent.push(now);
   userMessageTimestamps.set(userId, recent);
 
   if (recent.length > RATE_LIMIT) {
-    const abuseMessage = {
-      fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
-      ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
-      en: "⚠️ You’re sending too many messages. Please wait a moment."
-    };
-    return ctx.reply(abuseMessage[lang]);
+    mutedUsers.set(userId, now + RATE_WINDOW);
+    return ctx.reply({
+      fr: "⚠️ Trop de messages envoyés. Veuillez attendre 1 minute.",
+      ht: "⚠️ Ou voye twòp mesaj. Tanpri tann 1 minit.",
+      en: "⚠️ You’re sending too many messages. Please wait 1 minute."
+    }[lang]);
   }
 
-  // 🔐 Passcode Check
+  // 🔐 Passcode check
   if (!authorizedUsers.has(userId)) {
     if (input === PASSCODE) {
       authorizedUsers.add(userId);
@@ -135,7 +120,7 @@ if (recent.length > RATE_LIMIT) {
     }
   }
 
-  // ✅ 📧 Email Capture
+  // 📧 Email capture
   if (!userEmails.has(userId) && input.includes('@')) {
     userEmails.set(userId, input);
     ctx.reply("✅ Merci, votre adresse a été enregistrée.");
@@ -150,42 +135,33 @@ if (recent.length > RATE_LIMIT) {
     return;
   }
 
-  // 🚫 Block spiritual/mystical content
-  if (restrictedKeywords.some(w => input.toLowerCase().includes(w))) {
+  // 🚫 Filter restricted topics
+  if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
     return ctx.reply(messages.restricted[lang]);
   }
 
-  // 🤖 Forward to Chatbase
+  // 🤖 Chatbase integration
   try {
     console.log("User input:", input);
 
     const response = await axios.post('https://www.chatbase.co/api/v1/chat', {
       messages: [{ role: 'user', content: input }],
-      chatbotId: process.env.CHATBASE_BOT_ID,
+      chatbotId: CHATBASE_ID,
       stream: false
     }, {
       headers: {
-        Authorization: `Bearer ${process.env.CHATBASE_API_KEY}`,
+        Authorization: `Bearer ${CHATBASE_API}`,
         'Content-Type': 'application/json'
       }
     });
 
-    const reply =
-      response.data?.messages?.[0]?.content ||
-      response.data?.text ||
-      null;
-
-    if (reply) {
-      ctx.reply(reply);
-    } else {
-      ctx.reply(messages.fallback[lang]);
-    }
+    const reply = response.data?.messages?.[0]?.content || response.data?.text || null;
+    ctx.reply(reply || messages.fallback[lang]);
 
   } catch (err) {
-    console.error("Error contacting Chatbase:", err.response?.data || err.message);
+    console.error("Chatbase error:", err.response?.data || err.message);
     ctx.reply(messages.error[lang]);
   }
 });
-
 
 bot.launch();
