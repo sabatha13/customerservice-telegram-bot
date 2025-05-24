@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
+const session = require('telegraf/session');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const SHEET_URL = process.env.SHEET_URL;
@@ -280,5 +281,6 @@ axios.post(process.env.LOG_SHEET_URL, {
     ctx.reply(messages.error[lang]);
   }
 });
+bot.use(session());
 
 bot.launch();
