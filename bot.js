@@ -70,45 +70,22 @@ bot.on('text', async (ctx) => {
   }
 
   const lang = userLanguages.get(userId);
-  bot.on('text', async (ctx) => {
-  const userId = ctx.from.id;
-  const input = ctx.message.text.trim();
 
-  if (!userLanguages.has(userId)) {
-    userLanguages.set(userId, detectLanguage(input));
-  }
-
-  const lang = userLanguages.get(userId);
-
-  // 🔒 RATE LIMIT CHECK (Insert this block)
+  // 🔒 RATE LIMIT CHECK
   const now = Date.now();
   const timestamps = userMessageTimestamps.get(userId) || [];
-
   const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
   recent.push(now);
   userMessageTimestamps.set(userId, recent);
 
-  const abuseMessage = {
-    fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
-    ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
-    en: "⚠️ You’re sending too many messages. Please wait a moment."
-  };
-
   if (recent.length > RATE_LIMIT) {
+    const abuseMessage = {
+      fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
+      ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
+      en: "⚠️ You’re sending too many messages. Please wait a moment."
+    };
     return ctx.reply(abuseMessage[lang]);
   }
-
-  // ✅ Your regular logic continues here...
-  if (!authorizedUsers.has(userId)) {
-    if (input === PASSCODE) {
-      authorizedUsers.add(userId);
-      ctx.reply(messages.passcodeSuccess[lang]);
-      return ctx.reply("📧 Pour recevoir des rappels ou documents, veuillez entrer votre adresse e-mail:");
-    } else {
-      return ctx.reply(messages.passcodeFail[lang]);
-    }
-  }
-
 
   // 🔐 Passcode Check
   if (!authorizedUsers.has(userId)) {
@@ -156,13 +133,22 @@ bot.on('text', async (ctx) => {
       }
     });
 
-    const reply = response.data?.messages?.[0]?.content || response.data?.text;
-    ctx.reply(reply || messages.fallback[lang]);
+    const reply =
+      response.data?.messages?.[0]?.content ||
+      response.data?.text ||
+      null;
+
+    if (reply) {
+      ctx.reply(reply);
+    } else {
+      ctx.reply(messages.fallback[lang]);
+    }
 
   } catch (err) {
-    console.error("Chatbase error:", err.message);
+    console.error("Error contacting Chatbase:", err.response?.data || err.message);
     ctx.reply(messages.error[lang]);
   }
 });
+
 
 bot.launch();
