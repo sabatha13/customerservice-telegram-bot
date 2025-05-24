@@ -122,18 +122,25 @@ bot.on('text', async (ctx) => {
 
   // 📧 Email capture
   if (!userEmails.has(userId) && input.includes('@')) {
-    userEmails.set(userId, input);
-    ctx.reply("✅ Merci, votre adresse a été enregistrée.");
+  userEmails.set(userId, input);
+  ctx.reply("✅ Merci, votre adresse a été enregistrée.");
+  
+// ✅ Notify admin
+bot.telegram.sendMessage(
+  process.env.ADMIN_TELEGRAM_ID,
+  `📩 *New Email Captured*\n👤 ID: ${userId}\n📧 ${input}`,
+  { parse_mode: 'Markdown' }
+);
 
-    axios.post(SHEET_URL, {
-      telegramId: userId,
-      email: input
-    }).catch(err => {
-      console.error("Google Sheet error:", err.message);
-    });
+  axios.post(SHEET_URL, {
+    telegramId: userId,
+    email: input
+  }).catch(err => {
+    console.error("Google Sheet error:", err.message);
+  });
 
-    return;
-  }
+  return;
+}
 
   // 🚫 Filter restricted topics
   if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
