@@ -5,6 +5,12 @@ const axios = require('axios');
 
 const studentNames = require('./data/student_id.json');
 const certificateLinks = require('./data/certificates_students.json');
+const transcriptData = require('./data/transcript_students.json'); // ✅ Ajouté ici
+const examDates = require('./data/exam_dates.json');
+const paymentDates = require('./data/paiements_final.json');
+const holidays = require('./data/jours_conges.json');
+
+
 
 // Initialize bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -126,18 +132,28 @@ Si ou pa sèten, jis poze kesyon ou.`,
 If you're unsure, just type your question.`
   };
 
-  ctx.reply(helpMessages[lang] || helpMessages.en, { parse_mode: 'Markdown' });
+  ctx.reply(helpMessages[lang] || helpMessages.en, {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      keyboard: [['Français', 'Kreyòl', 'English']],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  });
 });
+
 
 bot.command('language', (ctx) => {
   ctx.reply('🌍 Choose your language / Chwazi lang ou / Choisissez votre langue:', {
     reply_markup: {
       keyboard: [['Français', 'Kreyòl', 'English']],
-      one_time_keyboard: true,
-      resize_keyboard: true
+      resize_keyboard: true,
+      one_time_keyboard: false
     }
   });
 });
+
+
 bot.hears(['Français', 'Kreyòl', 'English'], (ctx) => {
   const lang = ctx.message.text === 'Français' ? 'fr'
              : ctx.message.text === 'Kreyòl' ? 'ht'
@@ -145,10 +161,19 @@ bot.hears(['Français', 'Kreyòl', 'English'], (ctx) => {
 
   userLanguages.set(ctx.from.id, lang);
   ctx.session ??= {};
-  ctx.session.lang = lang; // optional backup
-  ctx.reply(`✅ Langue définie sur ${ctx.message.text}.`);
+  ctx.session.lang = lang;
+
+  ctx.reply(`✅ Langue définie sur ${ctx.message.text}.`, {
+    reply_markup: {
+      remove_keyboard: true
+    }
+  });
 });
 
+
+const resourceKeywords = {
+  schedule: 'https://drive.google.com/file/d/SCHEDULE_ID/view?usp=sharing'
+};
 
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
@@ -165,6 +190,29 @@ bot.on('text', async (ctx) => {
     if (now < until) return ctx.reply("⏳ Please wait a moment.");
     mutedUsers.delete(userId);
   }
+  // ✅ Transcript logic
+const transcriptKeywords = ['transcript', 'relevé de notes', 'transkripsyon'];
+if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
+  const studentID = ctx.session?.studentID?.toUpperCase();
+  const transcript = transcriptData[studentID];
+
+  if (transcript) {
+    const formattedTranscript = Object.entries(transcript)
+      .map(([subject, grade]) => `📘 *${subject}*: ${grade}%`)
+      .join('\n');
+
+    return ctx.reply(`📄 *Voici votre relevé de notes :*\n\n${formattedTranscript}`, { parse_mode: 'Markdown' });
+  }
+
+  const transcriptFallback = {
+    en: `❗ No transcript found for your ID.`,
+    fr: `❗ Aucun relevé de notes trouvé pour votre identifiant.`,
+    ht: `❗ Pa gen transkripsyon jwenn pou ID ou a.`
+  };
+
+  return ctx.reply(transcriptFallback[lang] || transcriptFallback.en);
+}
+
 
   const timestamps = userMessageTimestamps.get(userId) || [];
   const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
@@ -244,11 +292,35 @@ bot.on('text', async (ctx) => {
   return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
 }
 
+const examKeywords = ['exam', 'examens', 'schedule', 'orè'];
+if (examKeywords.some(k => input.toLowerCase().includes(k))) {
+  let message = '📅 *Dates des examens :*\n\n';
+  for (const [course, list] of Object.entries(examDates)) {
+    list.forEach(entry => {
+      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
+    });
+  }
+  return ctx.reply(message, { parse_mode: 'Markdown' });
+}
+const paymentKeywords = ['paiement', 'peyman', 'payment'];
+if (paymentKeywords.some(k => input.toLowerCase().includes(k))) {
+  let message = '💳 *Dates de paiements finals :*\n\n';
+  for (const [course, list] of Object.entries(paymentDates)) {
+    list.forEach(entry => {
+      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
+    });
+  }
+  return ctx.reply(message, { parse_mode: 'Markdown' });
+}
+const holidayKeywords = ['vacances', 'congé', 'konje', 'holiday'];
+if (holidayKeywords.some(k => input.toLowerCase().includes(k))) {
+  let message = '🎉 *Jours de congé :*\n\n';
+  holidays.forEach(entry => {
+    message += `📅 ${entry.date || entry.periode} – ${entry.raison}\n`;
+  });
+  return ctx.reply(message, { parse_mode: 'Markdown' });
+}
 
-  const resourceKeywords = {
-    transcript: 'https://drive.google.com/file/d/TRANSCRIPT_ID/view?usp=sharing',
-    schedule: 'https://drive.google.com/file/d/SCHEDULE_ID/view?usp=sharing'
-  };
 
   const keyword = Object.keys(resourceKeywords).find(k => input.toLowerCase().includes(k));
   if (keyword) {
@@ -283,25 +355,56 @@ bot.on('text', async (ctx) => {
     ctx.reply(messages.error[lang]);
   }
 });
-bot.on('document', async (ctx) => {
-  const file = ctx.message.document;
 
+// ✅ Handle uploaded documents (PDFs, etc.)
+bot.on('document', async (ctx) => {
   try {
+    const file = ctx.message.document;
     const fileInfo = await ctx.telegram.getFile(file.file_id);
     const fullUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
 
     await ctx.telegram.sendMessage(
       process.env.ADMIN_TELEGRAM_ID,
-      `📄 *New file from ${ctx.from.first_name || 'Unknown'}*\nID: ${ctx.from.id}\n📎 ${fullUrl}`,
-      { parse_mode: 'Markdown' }
+      `New file: ${fullUrl}`
     );
 
-    ctx.reply('✅ File received. We’ll review it shortly.');
+    ctx.reply('✅ File received.');
   } catch (error) {
-    console.error("File link error:", error);
+    console.error("❌ File link error:", error);
     ctx.reply('❌ Sorry, we could not process the file link.');
   }
 });
+
+
+// ✅ Handle uploaded photos
+bot.on('photo', async (ctx) => {
+  try {
+    const photo = ctx.message.photo.pop(); // get highest resolution
+    const fileInfo = await ctx.telegram.getFile(photo.file_id);
+    const fullUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
+
+    await ctx.telegram.sendMessage(
+  process.env.ADMIN_TELEGRAM_ID,
+  `📄 <b>New file from ${ctx.from.first_name || 'Unknown'}</b>\nID: ${ctx.from.id}\n📎 <a href="${fullUrl}">View File</a>`,
+  { parse_mode: 'HTML' }
+);
+
+
+    ctx.reply('✅ Photo received. We’ll review it shortly.');
+  } catch (error) {
+    console.error("Photo link error:", error);
+    ctx.reply('❌ Sorry, we could not process the photo.');
+  }
+});
+// ✅ Keep Render awake (ping every 5 minutes)
+if (process.env.RENDER === 'true') {
+  const axios = require('axios');
+  setInterval(() => {
+    axios.get('https://your-render-service.onrender.com').catch(err =>
+      console.error('Keep-alive ping failed:', err.message)
+    );
+  }, 1000 * 60 * 5); // every 5 minutes
+}
 
 
 bot.launch().then(() => console.log("✅ Bot is running"));
