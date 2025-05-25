@@ -433,15 +433,6 @@ bot.on('photo', async (ctx) => {
     ctx.reply('❌ Sorry, we could not process the photo.');
   }
 });
-// ✅ Keep Render awake (ping every 5 minutes)
-if (process.env.RENDER === 'true') {
-  const axios = require('axios');
-  setInterval(() => {
-    axios.get('https://your-render-service.onrender.com').catch(err =>
-      console.error('Keep-alive ping failed:', err.message)
-    );
-  }, 1000 * 60 * 5); // every 5 minutes
-}
 
 
 bot.launch().then(() => console.log("✅ Bot is running"));
