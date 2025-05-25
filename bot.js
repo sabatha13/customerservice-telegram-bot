@@ -194,10 +194,13 @@ bot.hears(['Français', 'Kreyòl', 'English'], (ctx) => {
 
   ctx.reply(`✅ Langue définie sur ${ctx.message.text}.`, {
     reply_markup: {
-      remove_keyboard: true
+      keyboard: [['Français', 'Kreyòl', 'English']],
+      resize_keyboard: true,
+      one_time_keyboard: false
     }
   });
 });
+
 
 
 const resourceKeywords = {
