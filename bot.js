@@ -318,6 +318,52 @@ bot.on('text', async (ctx) => {
   if (!authorizedUsers.has(userId)) {
     return ctx.reply(messages.authFail[lang]);
   }
+// ✅ Transcript logic
+const transcriptKeywords = ['transcript', 'relevé de notes', 'transkripsyon'];
+if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
+  const studentID = ctx.session?.studentID?.toUpperCase();
+  const transcript = transcriptData[studentID];
+
+  if (transcript) {
+    const formattedTranscript = Object.entries(transcript)
+      .map(([subject, grade]) => `📘 *${subject}*: ${grade}%`)
+      .join('\n');
+
+    return ctx.reply(`📄 *Voici votre relevé de notes :*\n\n${formattedTranscript}`, { parse_mode: 'Markdown' });
+  }
+
+  const transcriptFallback = {
+    en: `❗ No transcript found for your ID.`,
+    fr: `❗ Aucun relevé de notes trouvé pour votre identifiant.`,
+    ht: `❗ Pa gen transkripsyon jwenn pou ID ou a.`
+  };
+
+  return ctx.reply(transcriptFallback[lang] || transcriptFallback.en);
+}
+
+// ✅ Exam schedule
+const examKeywords = ['exam', 'examens', 'schedule', 'orè'];
+if (examKeywords.some(k => input.toLowerCase().includes(k))) {
+  let message = '📅 *Dates des examens :*\n\n';
+  for (const [course, list] of Object.entries(examDates)) {
+    list.forEach(entry => {
+      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
+    });
+  }
+  return ctx.reply(message, { parse_mode: 'Markdown' });
+}
+
+// ✅ Final payment dates
+const paymentKeywords = ['paiement', 'peyman', 'payment'];
+if (paymentKeywords.some(k => input.toLowerCase().includes(k))) {
+  let message = '💳 *Dates de paiements finals :*\n\n';
+  for (const [course, list] of Object.entries(paymentDates)) {
+    list.forEach(entry => {
+      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
+    });
+  }
+  return ctx.reply(message, { parse_mode: 'Markdown' });
+}
 
   // STEP 6: Forward to Chatbase
   try {
