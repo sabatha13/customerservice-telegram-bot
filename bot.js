@@ -24,7 +24,22 @@ const CHATBASE_ID = process.env.CHATBASE_BOT_ID;
 const CHATBASE_API = process.env.CHATBASE_API_KEY;
 
 const authorizedUsers = new Set();
-const userEmails = new Map();
+const fs = require('fs');
+const EMAIL_DB_PATH = './data/user_emails.json';
+
+let userEmails = new Map();
+
+// Load existing emails
+if (fs.existsSync(EMAIL_DB_PATH)) {
+  const data = JSON.parse(fs.readFileSync(EMAIL_DB_PATH, 'utf-8'));
+  userEmails = new Map(Object.entries(data));
+}
+
+// Helper to save after update
+function saveEmailsToFile() {
+  fs.writeFileSync(EMAIL_DB_PATH, JSON.stringify(Object.fromEntries(userEmails), null, 2));
+}
+
 const userMessageTimestamps = new Map();
 const mutedUsers = new Map();
 const userLanguages = new Map();
@@ -260,15 +275,20 @@ if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
   }
 
   if (!userEmails.has(userId) && input.includes('@')) {
-    userEmails.set(userId, input);
-    ctx.reply("✅ Your email has been saved.");
-    bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
-      `📩 *New Email*\nID: ${userId}\n📧 ${input}`,
-      { parse_mode: 'Markdown' });
-    axios.post(SHEET_URL, { telegramId: userId, email: input })
-      .catch(err => console.error("Sheet error:", err.message));
-    return;
-  }
+  userEmails.set(userId, input);
+  saveEmailsToFile(); // ✅ persist to file
+
+  ctx.reply("✅ Your email has been saved.");
+  bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
+    `📩 *New Email*\nID: ${userId}\n📧 ${input}`,
+    { parse_mode: 'Markdown' });
+
+  axios.post(SHEET_URL, { telegramId: userId, email: input })
+    .catch(err => console.error("Sheet error:", err.message));
+
+  return;
+}
+
 
   if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
     return ctx.reply(messages.restricted[lang]);
