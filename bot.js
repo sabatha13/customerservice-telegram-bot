@@ -298,36 +298,46 @@ if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
   }
 
   // ✅ Certificate logic
-  const certificateKeywords = [
-    'certificate', 'certificat', 'sètifika',
-    'attestation', 'attestasyon',
-    'diploma', 'diplom', 'diplôme'
-  ];
+const certificateKeywords = [
+  'certificate', 'certificat', 'sètifika',
+  'attestation', 'attestasyon',
+  'diploma', 'diplom', 'diplôme'
+];
 
-  if (certificateKeywords.some(k => input.toLowerCase().includes(k))) {
+if (certificateKeywords.some(k => input.toLowerCase().includes(k))) {
   const studentID = ctx.session?.studentID?.toUpperCase();
-  console.log("Student ID in session:", studentID);
-  const link = certificateLinks[studentID];
-
-  if (link) {
-    return ctx.reply(`📎 Here is your certificate: ${link}`);
+  if (!studentID) {
+    return ctx.reply("❌ I couldn't find your student ID. Please enter it again.");
   }
 
-  // ✅ Ensure language is correctly detected
-  let lang = userLanguages.get(userId);
-  if (!lang) {
-    lang = detectLanguage(input);
-    userLanguages.set(userId, lang);
+  try {
+    // Fetch the live certificate map from Google Apps Script
+    const response = await axios.get(process.env.CERT_API_URL);
+    const certMap = response.data;
+
+    const links = certMap[studentID];
+    if (!links || links.length === 0) {
+      const fallback = {
+        fr: `❗ *Aucun certificat trouvé pour votre identifiant.*\n\n**Demande de Certificat**\n\n1. **Vérifiez votre éligibilité**\n2. **Soumettez une demande à** info@academiesapienceuniverselle.org\n3. **Délai :** 7 jours ouvrables`,
+        ht: `❗ *Pa gen sètifika jwenn pou ID ou a.*\n\n**Demann pou Sètifika**\n\n1. **Verifye kalifikasyon ou**\n2. **Voye demann nan** info@academiesapienceuniverselle.org\n3. **Tretman :** 7 jou travay`,
+        en: `❗ *No certificate found for your ID.*\n\n**Requesting Your Certificate**\n\n1. **Check eligibility**\n2. **Send request to** info@academiesapienceuniverselle.org\n3. **Processing:** 7 business days`
+      };
+
+      return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
+    }
+
+    // ✅ Format the message for one or many certificates
+    const replyText = `📎 You have ${links.length} certificate(s):\n\n` +
+                      links.map((link, i) => `📄 Certificate ${i + 1}: ${link}`).join('\n');
+
+    return ctx.reply(replyText);
+
+  } catch (err) {
+    console.error("❌ Error fetching certificate:", err.message);
+    return ctx.reply(messages.error[lang]);
   }
-
-  const fallback = {
-    fr: `❗ *Aucun certificat trouvé pour votre identifiant.*\n\n**Demande de Certificat**\n\n1. **Vérifiez votre éligibilité**\n2. **Soumettez une demande à** info@academiesapienceuniverselle.org\n3. **Délai :** 7 jours ouvrables`,
-    ht: `❗ *Pa gen sètifika jwenn pou ID ou a.*\n\n**Demann pou Sètifika**\n\n1. **Verifye kalifikasyon ou**\n2. **Voye demann nan** info@academiesapienceuniverselle.org\n3. **Tretman :** 7 jou travay`,
-    en: `❗ *No certificate found for your ID.*\n\n**Requesting Your Certificate**\n\n1. **Check eligibility**\n2. **Send request to** info@academiesapienceuniverselle.org\n3. **Processing:** 7 business days`
-  };
-
-  return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
 }
+
 
 const examKeywords = ['exam', 'examens', 'schedule', 'orè'];
 if (examKeywords.some(k => input.toLowerCase().includes(k))) {
