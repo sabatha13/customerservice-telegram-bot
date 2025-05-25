@@ -152,6 +152,20 @@ bot.command('language', (ctx) => {
     }
   });
 });
+bot.command('conge', (ctx) => {
+  let lang = userLanguages.get(ctx.from.id);
+  if (!lang) {
+    lang = detectLanguage(ctx.message.text || '');
+    userLanguages.set(ctx.from.id, lang);
+  }
+
+  let message = '🎉 *Jours de congé :*\n\n';
+  holidays.forEach(entry => {
+    message += `📅 ${entry.date || entry.periode} – ${entry.raison}\n`;
+  });
+
+  ctx.reply(message, { parse_mode: 'Markdown' });
+});
 
 
 bot.hears(['Français', 'Kreyòl', 'English'], (ctx) => {
