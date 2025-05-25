@@ -1,11 +1,19 @@
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
+const LocalSession = require('telegraf-session-local');
 const axios = require('axios');
-const session = require('telegraf/session');
 
+const studentNames = require('./data/student_id.json');
+const certificateLinks = require('./data/certificates_students.json');
+
+// Initialize bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// ✅ Use local session middleware
+bot.use(new LocalSession({ database: 'session_db.json' }).middleware());
+
+
 const SHEET_URL = process.env.SHEET_URL;
-const PASSCODE = process.env.PASSCODE || 'SAP101';
 const CHATBASE_ID = process.env.CHATBASE_BOT_ID;
 const CHATBASE_API = process.env.CHATBASE_API_KEY;
 
@@ -15,76 +23,9 @@ const userMessageTimestamps = new Map();
 const mutedUsers = new Map();
 const userLanguages = new Map();
 
-// ✅ List of valid student IDs
-const validStudentIDs = new Set([
-  "ASU-9087", "ASU-0089", "ASU-5543", "ASU-1123", "ASU-5656",
-  "ASU-4321", "ASU-7776", "ASU-8878", "ASU-7657", "ASU-7770",
-  "ASU-65T4", "ASU-J87E", "ASU-U76R", "ASU-71Q6", "ASU-7208",
-  "ASU-N79Z", "ASU-2041", "ASU-482Q", "ASU-5463", "ASU-1086",
-  "ASU-0001", "ASU-9976", "ASU-2455", "ASU-4432", "ASU-97JU",
-  "ASU-8754", "ASU-8909", "ASU-90H8", "ASU-767I", "ASU-90J2",
-  "ASU-82WK", "ASU-Y65T", "ASU-751Q", "ASU-008G", "ASU-701A",
-  "ASU-MN61", "ASU-KA42", "ASU-LK00", "ASU-BV03", "ASU-BY76",
-  "ASU-AA03", "ASU-SS73", "ASU-LI81", "ASU-MK00", "ASU-JJ98",
-  "ASU-LL94", "ASU-HF70", "ASU-0093"
-]);
-
-// 🗂️ ID → Name map
-const studentNames = {
-  "ASU-9087": "Medjyne Lubin",
-  "ASU-0089": "Le Comte de Sabatha",
-  "ASU-5543": "Joseph Ardouin",
-  "ASU-1123": "Bien-aimé Audisson",
-  "ASU-5656": "Fredo Hermisson Alfred",
-  "ASU-4321": "Theodore Loucianord",
-  "ASU-7776": "Stephenie Beaubrun",
-  "ASU-8878": "Pierre Louis Illonny",
-  "ASU-7657": "Widlere Boyer",
-  "ASU-7770": "Zamor Richardson",
-  "ASU-65T4": "Nadege Jeune",
-  "ASU-J87E": "Augustin Dargan",
-  "ASU-U76R": "Milfort Jean Bernard",
-  "ASU-71Q6": "Herline Lochard",
-  "ASU-7208": "Jenny Amando Cesar",
-  "ASU-N79Z": "Martin Paul Fleurime",
-  "ASU-2041": "Antoine Ricardo",
-  "ASU-482Q": "Fieffe Sebastien",
-  "ASU-5463": "Vanessa Petit Dor",
-  "ASU-1086": "Confident Joseph Ernest",
-  "ASU-0001": "Guilande Gourdet",
-  "ASU-9976": "Confident Joseph Ernest",
-  "ASU-2455": "Ramy Anilia",
-  "ASU-4432": "Nerette Josemithe",
-  "ASU-97JU": "Michel Eddy",
-  "ASU-8754": "Elie Laurent Andral",
-  "ASU-8909": "Astride Petit Dor",
-  "ASU-90H8": "Benoit Ralph Jose",
-  "ASU-767I": "Henrice Somoza",
-  "ASU-90J2": "St Juste Garichard Gabriel",
-  "ASU-82WK": "Patrick Desir",
-  "ASU-Y65T": "Cyprien Euponine",
-  "ASU-751Q": "Baptiste Pierrot",
-  "ASU-008G": "Ginger Isaac",
-  "ASU-701A": "Ryana Ternier",
-  "ASU-MN61": "Max Gregord Degraff",
-  "ASU-KA42": "Marie Rodriguez Dautruche",
-  "ASU-LK00": "Jeanbaptiste Jean Wood",
-  "ASU-BV03": "Rodly Saint Vil",
-  "ASU-BY76": "Winson Hyppolite",
-  "ASU-AA03": "Aliuskha Shelda Eliassaint",
-  "ASU-SS73": "Eden Jean Albert",
-  "ASU-LI81": "Costama Janvier",
-  "ASU-MK00": "Cherismard Beauge",
-  "ASU-JJ98": "Eddyson Willens ResilliacMax",
-  "ASU-LL94": "Kleibenz Caperton Etienne",
-  "ASU-HF70": "Jean Mario Dolciné",
-  "ASU-0093": "Estinfont Vilender"
-};
-
-
+const validStudentIDs = new Set(Object.keys(studentNames));
 const RATE_LIMIT = 5;
-const RATE_WINDOW = 30 * 1000; // 30 seconds
-
+const RATE_WINDOW = 30 * 1000;
 
 const restrictedKeywords = [
   'ritual', 'dream', 'spiritual', 'kabbalah', 'initiation',
@@ -102,42 +43,112 @@ function detectLanguage(text) {
 
 const messages = {
   welcome: {
-    fr: '🔐 Bienvenue au service étudiant de l’Académie Sapience Universelle.\nVeuillez entrer votre code d’accès pour continuer.',
-    ht: '🔐 Byenveni nan sèvis elèv Akademi Sapience Universelle.\nTanpri antre kòd aksè ou pou kontinye.',
-    en: '🔐 Welcome to the Académie Sapience Universelle Student Services.\nPlease enter your student access code to continue.'
+    fr: '🔐 Veuillez entrer votre identifiant étudiant pour continuer.',
+    ht: '🔐 Tanpri antre ID elèv ou pou kontinye.',
+    en: '🔐 Please enter your student ID to continue.'
   },
-  passcodeSuccess: {
+  authSuccess: {
     fr: '✅ Accès accordé. Comment puis-je vous aider ?',
     ht: '✅ Aksè akòde. Kijan mwen ka ede w ?',
-    en: '✅ Access granted. How can I assist you with your student services today?'
+    en: '✅ Access granted. How can I assist you?'
   },
-  passcodeFail: {
-    fr: '⛔ Code invalide. Veuillez réessayer.',
-    ht: '⛔ Kòd aksè pa valab. Tanpri eseye ankò.',
-    en: '⛔ Invalid passcode. Please enter your correct student access code.'
+  authFail: {
+    fr: '⛔ Identifiant invalide. Veuillez réessayer.',
+    ht: '⛔ ID pa valab. Tanpri eseye ankò.',
+    en: '⛔ Invalid ID. Please try again.'
   },
   restricted: {
-    fr: '⚠️ Je suis ici pour les questions administratives et techniques uniquement. Pour les sujets spirituels, veuillez contacter le Professeur THOTH.',
-    ht: '⚠️ Mwen la pou kesyon administratif ak teknik sèlman. Pou sijè espirityèl, kontakte Pwofesè THOTH.',
-    en: '⚠️ I’m here to help with administrative and technical questions only. For spiritual topics, please contact Professeur THOTH.'
+    fr: '⚠️ Sujets spirituels interdits ici.',
+    ht: '⚠️ Sijè espirityèl pa pèmèt isit.',
+    en: '⚠️ Spiritual topics are not allowed here.'
   },
   fallback: {
-    fr: '❓ Je n’ai pas trouvé de réponse à cette question. Veuillez reformuler ou contacter l’assistance.',
-    ht: '❓ Mwen pa jwenn repons pou kesyon sa. Tanpri eseye mete l lòt jan oswa kontakte sipò.',
-    en: '❓ I couldn’t find a response for that. Try rephrasing or contact support.'
+    fr: '❓ Aucune réponse disponible. Essayez autre chose.',
+    ht: '❓ Pa gen repons. Tanpri eseye ankò.',
+    en: '❓ No response found. Try something else.'
   },
   error: {
-    fr: '❌ Une erreur est survenue. Veuillez réessayer plus tard.',
-    ht: '❌ Gen yon erè ki fèt. Tanpri eseye ankò pita.',
-    en: '❌ There was an error contacting the support system. Please try again later.'
+    fr: '❌ Erreur technique. Veuillez réessayer plus tard.',
+    ht: '❌ Erè teknik. Tanpri eseye pita.',
+    en: '❌ Technical error. Please try again later.'
   }
 };
 
 bot.start((ctx) => {
-  const lang = detectLanguage(ctx.message.text || '');
-  userLanguages.set(ctx.from.id, lang);
+  ctx.session = {}; // ✅ clean reset
+
+  let lang = userLanguages.get(ctx.from.id);
+  if (!lang) {
+    lang = detectLanguage(ctx.message.text || '');
+    userLanguages.set(ctx.from.id, lang);
+  }
+  ctx.session.lang = lang;
+
   ctx.reply(messages.welcome[lang]);
 });
+
+
+bot.command('help', (ctx) => {
+  let lang = userLanguages.get(ctx.from.id);
+  if (!lang) {
+    lang = detectLanguage(ctx.message.text || '');
+    userLanguages.set(ctx.from.id, lang);
+  }
+
+  console.log("Language in /help:", lang); // ✅ Step 1 debug log
+
+  const helpMessages = {
+    fr: `📚 *Commandes disponibles :*
+
+- /start – Redémarrer la session
+- /help – Afficher ce menu d'aide
+- *certificat / diplôme / attestation* – Obtenez votre certificat
+- *transcript / schedule* – Demander des documents
+
+Si vous ne savez pas quoi écrire, posez simplement votre question.`,
+
+    ht: `📚 *Kòmand disponib :*
+
+- /start – Rekòmanse sesyon an
+- /help – Montre meni èd la
+- *sètifika / diplòm / atestasyon* – Jwenn sètifika ou
+- *transcript / schedule* – Mande dokiman
+
+Si ou pa sèten, jis poze kesyon ou.`,
+
+    en: `📚 *Available Commands:*
+
+- /start – Restart the session
+- /help – Show this help menu
+- *certificate / certificat / sètifika* – Get your certificate
+- *transcript / schedule* – Request documents
+
+If you're unsure, just type your question.`
+  };
+
+  ctx.reply(helpMessages[lang] || helpMessages.en, { parse_mode: 'Markdown' });
+});
+
+bot.command('language', (ctx) => {
+  ctx.reply('🌍 Choose your language / Chwazi lang ou / Choisissez votre langue:', {
+    reply_markup: {
+      keyboard: [['Français', 'Kreyòl', 'English']],
+      one_time_keyboard: true,
+      resize_keyboard: true
+    }
+  });
+});
+bot.hears(['Français', 'Kreyòl', 'English'], (ctx) => {
+  const lang = ctx.message.text === 'Français' ? 'fr'
+             : ctx.message.text === 'Kreyòl' ? 'ht'
+             : 'en';
+
+  userLanguages.set(ctx.from.id, lang);
+  ctx.session ??= {};
+  ctx.session.lang = lang; // optional backup
+  ctx.reply(`✅ Langue définie sur ${ctx.message.text}.`);
+});
+
 
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
@@ -149,95 +160,103 @@ bot.on('text', async (ctx) => {
   }
   const lang = userLanguages.get(userId);
 
-  // 🚫 If muted
   if (mutedUsers.has(userId)) {
     const until = mutedUsers.get(userId);
-    if (now < until) {
-      return ctx.reply({
-        fr: "⚠️ Vous envoyez trop de messages. Veuillez patienter quelques instants.",
-        ht: "⚠️ Ou ap voye twòp mesaj. Tanpri tann kèk segond.",
-        en: "⚠️ You’re sending too many messages. Please wait a moment."
-      }[lang]);
-    } else {
-      mutedUsers.delete(userId);
-    }
+    if (now < until) return ctx.reply("⏳ Please wait a moment.");
+    mutedUsers.delete(userId);
   }
 
-  // ⏱️ Spam detection
   const timestamps = userMessageTimestamps.get(userId) || [];
   const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
   recent.push(now);
   userMessageTimestamps.set(userId, recent);
-
   if (recent.length > RATE_LIMIT) {
     mutedUsers.set(userId, now + RATE_WINDOW);
-    return ctx.reply({
-      fr: "⚠️ Trop de messages envoyés. Veuillez attendre 1 minute.",
-      ht: "⚠️ Ou voye twòp mesaj. Tanpri tann 1 minit.",
-      en: "⚠️ You’re sending too many messages. Please wait 1 minute."
-    }[lang]);
+    return ctx.reply("⛔ You're sending messages too quickly.");
   }
 
- const studentID = input.toUpperCase();
-if (!authorizedUsers.has(userId)) {
-  if (validStudentIDs.has(studentID)) {
-    authorizedUsers.add(userId);
+  if (!authorizedUsers.has(userId)) {
+    const studentID = input.toUpperCase();
+    if (validStudentIDs.has(studentID)) {
+      authorizedUsers.add(userId);
+      const studentName = studentNames[studentID] || "Unknown";
 
-    const studentName = studentNames[studentID] || "Nom inconnu";
+      bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
+        `🟢 *Login approved*\n👤 ${studentName}\n🆔 ${studentID}`,
+        { parse_mode: 'Markdown' });
 
-    // ✅ Notify Admin
-    bot.telegram.sendMessage(
-      process.env.ADMIN_TELEGRAM_ID,
-      `🟢 *Connexion approuvée*\n👤 ${studentName}\n🆔 ${studentID}`,
-      { parse_mode: 'Markdown' }
-    );
+      ctx.session ??= {};
+      ctx.session.studentName = studentName;
+      ctx.session.studentID = studentID;
 
-    // 📝 Optionally store in Map
-    ctx.session = ctx.session || {};
-    ctx.session.studentName = studentName;
-    ctx.session.studentID = studentID;
-
-    ctx.reply(`✅ Bonjour ${studentName}. Comment puis-je vous assister aujourd’hui ?`);
-    return ctx.reply("📧 Pour recevoir des rappels ou documents, veuillez entrer votre adresse e-mail :");
-  } else {
-    return ctx.reply("⛔ Identifiant invalide. Veuillez entrer un identifiant étudiant valide.");
+      ctx.reply(`✅ Hello ${studentName}. How can I help you today?`);
+      return ctx.reply("📧 Please enter your email to receive notifications:");
+    } else {
+      delete ctx.session;
+      return ctx.reply(messages.authFail[lang]);
+    }
   }
-}
 
-
-  // 📧 Email capture
   if (!userEmails.has(userId) && input.includes('@')) {
-  userEmails.set(userId, input);
-  ctx.reply("✅ Merci, votre adresse a été enregistrée.");
+    userEmails.set(userId, input);
+    ctx.reply("✅ Your email has been saved.");
+    bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
+      `📩 *New Email*\nID: ${userId}\n📧 ${input}`,
+      { parse_mode: 'Markdown' });
+    axios.post(SHEET_URL, { telegramId: userId, email: input })
+      .catch(err => console.error("Sheet error:", err.message));
+    return;
+  }
 
-  // ✅ Notify admin
-  bot.telegram.sendMessage(
-    process.env.ADMIN_TELEGRAM_ID,
-    `📩 *New Email Captured*\n👤 ID: ${userId}\n📧 ${input}`,
-    { parse_mode: 'Markdown' }
-  );
-
-  // ✅ Send to Google Sheet
-  axios.post(SHEET_URL, {
-    telegramId: userId,
-    email: input
-  }).catch(err => {
-    console.error("Google Sheet error:", err.message);
-  });
-
-  return;
-}
-
-
-  // 🚫 Filter restricted topics
   if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
     return ctx.reply(messages.restricted[lang]);
   }
 
-  // 🤖 Chatbase integration
-  try {
-    console.log("User input:", input);
+  // ✅ Certificate logic
+  const certificateKeywords = [
+    'certificate', 'certificat', 'sètifika',
+    'attestation', 'attestasyon',
+    'diploma', 'diplom', 'diplôme'
+  ];
 
+  if (certificateKeywords.some(k => input.toLowerCase().includes(k))) {
+  const studentID = ctx.session?.studentID?.toUpperCase();
+  console.log("Student ID in session:", studentID);
+  const link = certificateLinks[studentID];
+
+  if (link) {
+    return ctx.reply(`📎 Here is your certificate: ${link}`);
+  }
+
+  // ✅ Ensure language is correctly detected
+  let lang = userLanguages.get(userId);
+  if (!lang) {
+    lang = detectLanguage(input);
+    userLanguages.set(userId, lang);
+  }
+
+  const fallback = {
+    fr: `❗ *Aucun certificat trouvé pour votre identifiant.*\n\n**Demande de Certificat**\n\n1. **Vérifiez votre éligibilité**\n2. **Soumettez une demande à** info@academiesapienceuniverselle.org\n3. **Délai :** 7 jours ouvrables`,
+    ht: `❗ *Pa gen sètifika jwenn pou ID ou a.*\n\n**Demann pou Sètifika**\n\n1. **Verifye kalifikasyon ou**\n2. **Voye demann nan** info@academiesapienceuniverselle.org\n3. **Tretman :** 7 jou travay`,
+    en: `❗ *No certificate found for your ID.*\n\n**Requesting Your Certificate**\n\n1. **Check eligibility**\n2. **Send request to** info@academiesapienceuniverselle.org\n3. **Processing:** 7 business days`
+  };
+
+  return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
+}
+
+
+  const resourceKeywords = {
+    transcript: 'https://drive.google.com/file/d/TRANSCRIPT_ID/view?usp=sharing',
+    schedule: 'https://drive.google.com/file/d/SCHEDULE_ID/view?usp=sharing'
+  };
+
+  const keyword = Object.keys(resourceKeywords).find(k => input.toLowerCase().includes(k));
+  if (keyword) {
+    return ctx.reply(`📎 Here is your ${keyword}: ${resourceKeywords[keyword]}`);
+  }
+
+  try {
+    await ctx.sendChatAction('typing'); // ✅ show typing before Chatbase reply
     const response = await axios.post('https://www.chatbase.co/api/v1/chat', {
       messages: [{ role: 'user', content: input }],
       chatbotId: CHATBASE_ID,
@@ -251,36 +270,38 @@ if (!authorizedUsers.has(userId)) {
 
     const reply = response.data?.messages?.[0]?.content || response.data?.text || null;
     ctx.reply(reply || messages.fallback[lang]);
-    // 📝 Log interaction to Google Sheet
-    console.log("➡️ Sending to Google Sheet:", {
-  url: process.env.LOG_SHEET_URL,
-  payload: {
-    telegramId: userId,
-    userMessage: input,
-    botReply: reply
-  }
-});
 
-const studentID = ctx.session?.studentID || 'Unknown';
-const studentName = ctx.session?.studentName || 'Unknown';
-const timestamp = new Date().toLocaleString();
-
-axios.post(process.env.LOG_SHEET_URL, {
-  studentID,
-  studentName,
-  userMessage: input,
-  botReply: reply,
-  timestamp
-}).catch(err => {
-  console.error("Logging error:", err.message);
-});
-
-
+    axios.post(process.env.LOG_SHEET_URL, {
+      studentID: ctx.session?.studentID || 'Unknown',
+      studentName: ctx.session?.studentName || 'Unknown',
+      userMessage: input,
+      botReply: reply,
+      timestamp: new Date().toLocaleString()
+    }).catch(err => console.error("Log error:", err.message));
   } catch (err) {
     console.error("Chatbase error:", err.response?.data || err.message);
     ctx.reply(messages.error[lang]);
   }
 });
-bot.use(session());
+bot.on('document', async (ctx) => {
+  const file = ctx.message.document;
 
-bot.launch();
+  try {
+    const fileInfo = await ctx.telegram.getFile(file.file_id);
+    const fullUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
+
+    await ctx.telegram.sendMessage(
+      process.env.ADMIN_TELEGRAM_ID,
+      `📄 *New file from ${ctx.from.first_name || 'Unknown'}*\nID: ${ctx.from.id}\n📎 ${fullUrl}`,
+      { parse_mode: 'Markdown' }
+    );
+
+    ctx.reply('✅ File received. We’ll review it shortly.');
+  } catch (error) {
+    console.error("File link error:", error);
+    ctx.reply('❌ Sorry, we could not process the file link.');
+  }
+});
+
+
+bot.launch().then(() => console.log("✅ Bot is running"));
