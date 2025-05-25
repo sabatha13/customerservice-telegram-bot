@@ -217,34 +217,12 @@ bot.on('text', async (ctx) => {
   }
   const lang = userLanguages.get(userId);
 
+  // Rate limiting
   if (mutedUsers.has(userId)) {
     const until = mutedUsers.get(userId);
     if (now < until) return ctx.reply("⏳ Please wait a moment.");
     mutedUsers.delete(userId);
   }
-  // ✅ Transcript logic
-const transcriptKeywords = ['transcript', 'relevé de notes', 'transkripsyon'];
-if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
-  const studentID = ctx.session?.studentID?.toUpperCase();
-  const transcript = transcriptData[studentID];
-
-  if (transcript) {
-    const formattedTranscript = Object.entries(transcript)
-      .map(([subject, grade]) => `📘 *${subject}*: ${grade}%`)
-      .join('\n');
-
-    return ctx.reply(`📄 *Voici votre relevé de notes :*\n\n${formattedTranscript}`, { parse_mode: 'Markdown' });
-  }
-
-  const transcriptFallback = {
-    en: `❗ No transcript found for your ID.`,
-    fr: `❗ Aucun relevé de notes trouvé pour votre identifiant.`,
-    ht: `❗ Pa gen transkripsyon jwenn pou ID ou a.`
-  };
-
-  return ctx.reply(transcriptFallback[lang] || transcriptFallback.en);
-}
-
 
   const timestamps = userMessageTimestamps.get(userId) || [];
   const recent = timestamps.filter(ts => now - ts < RATE_WINDOW);
@@ -255,134 +233,102 @@ if (transcriptKeywords.some(k => input.toLowerCase().includes(k))) {
     return ctx.reply("⛔ You're sending messages too quickly.");
   }
 
+  // STEP 1: Authorize Student
   if (!authorizedUsers.has(userId)) {
     const studentID = input.toUpperCase();
     if (validStudentIDs.has(studentID)) {
       authorizedUsers.add(userId);
       const studentName = studentNames[studentID] || "Unknown";
 
-      bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
-        `🟢 *Login approved*\n👤 ${studentName}\n🆔 ${studentID}`,
-        { parse_mode: 'Markdown' });
-
       ctx.session ??= {};
       ctx.session.studentName = studentName;
       ctx.session.studentID = studentID;
 
+      bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
+        `🟢 *Login approved*\n👤 ${studentName}\n🆔 ${studentID}`,
+        { parse_mode: 'Markdown' }
+      );
+
       ctx.reply(`✅ Hello ${studentName}. How can I help you today?`);
       return ctx.reply("📧 Please enter your email to receive notifications:");
     } else {
-      delete ctx.session;
       return ctx.reply(messages.authFail[lang]);
     }
   }
 
+  // STEP 2: Save Email
   if (!userEmails.has(userId) && input.includes('@')) {
-  userEmails.set(userId, input);
-  saveEmailsToFile(); // ✅ persist to file
+    userEmails.set(userId, input);
+    ctx.reply("✅ Your email has been saved.");
+    bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
+      `📩 *New Email*\nID: ${userId}\n📧 ${input}`,
+      { parse_mode: 'Markdown' }
+    );
+    axios.post(process.env.SHEET_URL, {
+      telegramId: userId,
+      email: input
+    }).catch(err => console.error("Sheet error:", err.message));
+    return;
+  }
 
-  ctx.reply("✅ Your email has been saved.");
-  bot.telegram.sendMessage(process.env.ADMIN_TELEGRAM_ID,
-    `📩 *New Email*\nID: ${userId}\n📧 ${input}`,
-    { parse_mode: 'Markdown' });
-
-  axios.post(SHEET_URL, { telegramId: userId, email: input })
-    .catch(err => console.error("Sheet error:", err.message));
-
-  return;
-}
-
-
+  // STEP 3: Block restricted topics
   if (restrictedKeywords.some(word => input.toLowerCase().includes(word))) {
     return ctx.reply(messages.restricted[lang]);
   }
 
-  // ✅ Certificate logic
-const certificateKeywords = [
-  'certificate', 'certificat', 'sètifika',
-  'attestation', 'attestasyon',
-  'diploma', 'diplom', 'diplôme'
-];
+  // STEP 4: Certificate logic
+  const certificateKeywords = [
+    'certificate', 'certificat', 'sètifika',
+    'attestation', 'attestasyon',
+    'diploma', 'diplom', 'diplôme'
+  ];
 
-if (certificateKeywords.some(k => input.toLowerCase().includes(k))) {
-  const studentID = ctx.session?.studentID?.toUpperCase();
-  if (!studentID) {
-    return ctx.reply("❌ I couldn't find your student ID. Please enter it again.");
-  }
-
-  try {
-    // Fetch the live certificate map from Google Apps Script
-    const response = await axios.get(process.env.CERT_API_URL);
-    const certMap = response.data;
-
-    const links = certMap[studentID];
-    if (!links || links.length === 0) {
-      const fallback = {
-        fr: `❗ *Aucun certificat trouvé pour votre identifiant.*\n\n**Demande de Certificat**\n\n1. **Vérifiez votre éligibilité**\n2. **Soumettez une demande à** info@academiesapienceuniverselle.org\n3. **Délai :** 7 jours ouvrables`,
-        ht: `❗ *Pa gen sètifika jwenn pou ID ou a.*\n\n**Demann pou Sètifika**\n\n1. **Verifye kalifikasyon ou**\n2. **Voye demann nan** info@academiesapienceuniverselle.org\n3. **Tretman :** 7 jou travay`,
-        en: `❗ *No certificate found for your ID.*\n\n**Requesting Your Certificate**\n\n1. **Check eligibility**\n2. **Send request to** info@academiesapienceuniverselle.org\n3. **Processing:** 7 business days`
-      };
-
-      return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
+  if (certificateKeywords.some(k => input.toLowerCase().includes(k))) {
+    const studentID = ctx.session?.studentID?.toUpperCase();
+    if (!studentID) {
+      return ctx.reply("❌ I couldn't find your student ID. Please enter it again.");
     }
 
-    // ✅ Format the message for one or many certificates
-    const replyText = `📎 You have ${links.length} certificate(s):\n\n` +
-                      links.map((link, i) => `📄 Certificate ${i + 1}: ${link}`).join('\n');
+    try {
+      const response = await axios.get(process.env.CERT_API_URL);
+      const certMap = response.data;
+      const links = certMap[studentID];
 
-    return ctx.reply(replyText);
+      if (!links || links.length === 0) {
+        const fallback = {
+          fr: `❗ *Aucun certificat trouvé pour votre identifiant.*\n\n**Demande de Certificat**\n\n1. **Vérifiez votre éligibilité**\n2. **Soumettez une demande à** info@academiesapienceuniverselle.org\n3. **Délai :** 7 jours ouvrables`,
+          ht: `❗ *Pa gen sètifika jwenn pou ID ou a.*\n\n**Demann pou Sètifika**\n\n1. **Verifye kalifikasyon ou**\n2. **Voye demann nan** info@academiesapienceuniverselle.org\n3. **Tretman :** 7 jou travay`,
+          en: `❗ *No certificate found for your ID.*\n\n**Requesting Your Certificate**\n\n1. **Check eligibility**\n2. **Send request to** info@academiesapienceuniverselle.org\n3. **Processing:** 7 business days`
+        };
+        return ctx.reply(fallback[lang] || fallback.en, { parse_mode: 'Markdown' });
+      }
 
-  } catch (err) {
-    console.error("❌ Error fetching certificate:", err.message);
-    return ctx.reply(messages.error[lang]);
-  }
-}
+      const replyText = `📎 You have ${links.length} certificate(s):\n\n` +
+                        links.map((link, i) => `📄 Certificate ${i + 1}: ${link}`).join('\n');
 
+      return ctx.reply(replyText);
 
-const examKeywords = ['exam', 'examens', 'schedule', 'orè'];
-if (examKeywords.some(k => input.toLowerCase().includes(k))) {
-  let message = '📅 *Dates des examens :*\n\n';
-  for (const [course, list] of Object.entries(examDates)) {
-    list.forEach(entry => {
-      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
-    });
-  }
-  return ctx.reply(message, { parse_mode: 'Markdown' });
-}
-const paymentKeywords = ['paiement', 'peyman', 'payment'];
-if (paymentKeywords.some(k => input.toLowerCase().includes(k))) {
-  let message = '💳 *Dates de paiements finals :*\n\n';
-  for (const [course, list] of Object.entries(paymentDates)) {
-    list.forEach(entry => {
-      message += `📘 ${course} – Promotion ${entry.promotion} : ${entry.date}\n`;
-    });
-  }
-  return ctx.reply(message, { parse_mode: 'Markdown' });
-}
-const holidayKeywords = ['vacances', 'congé', 'konje', 'holiday'];
-if (holidayKeywords.some(k => input.toLowerCase().includes(k))) {
-  let message = '🎉 *Jours de congé :*\n\n';
-  holidays.forEach(entry => {
-    message += `📅 ${entry.date || entry.periode} – ${entry.raison}\n`;
-  });
-  return ctx.reply(message, { parse_mode: 'Markdown' });
-}
-
-
-  const keyword = Object.keys(resourceKeywords).find(k => input.toLowerCase().includes(k));
-  if (keyword) {
-    return ctx.reply(`📎 Here is your ${keyword}: ${resourceKeywords[keyword]}`);
+    } catch (err) {
+      console.error("❌ Error fetching certificate:", err.message);
+      return ctx.reply(messages.error[lang]);
+    }
   }
 
+  // STEP 5: Final authorization check (before Chatbase)
+  if (!authorizedUsers.has(userId)) {
+    return ctx.reply(messages.authFail[lang]);
+  }
+
+  // STEP 6: Forward to Chatbase
   try {
-    await ctx.sendChatAction('typing'); // ✅ show typing before Chatbase reply
+    await ctx.sendChatAction('typing');
     const response = await axios.post('https://www.chatbase.co/api/v1/chat', {
       messages: [{ role: 'user', content: input }],
-      chatbotId: CHATBASE_ID,
+      chatbotId: process.env.CHATBASE_BOT_ID,
       stream: false
     }, {
       headers: {
-        Authorization: `Bearer ${CHATBASE_API}`,
+        Authorization: `Bearer ${process.env.CHATBASE_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });
@@ -402,6 +348,7 @@ if (holidayKeywords.some(k => input.toLowerCase().includes(k))) {
     ctx.reply(messages.error[lang]);
   }
 });
+
 
 // ✅ Handle uploaded documents (PDFs, etc.)
 bot.on('document', async (ctx) => {
